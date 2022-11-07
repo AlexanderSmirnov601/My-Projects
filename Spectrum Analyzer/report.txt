@@ -1,0 +1,160 @@
+START OF REPORT
+irradiation date: 2021-10-11 11:47:30
+aquisition date: 2022-03-17 12:45:31
+START OF REPORT
+irradiation date: 2021-10-11 11:47:30
+aquisition date: 2022-03-17 12:45:31
+10.09    0.64
+END OF REPORT
+
+
+START OF REPORT
+irradiation date: 2021-10-11 11:47:30
+aquisition date: 2022-03-17 12:45:31
+10.09    0.64
+END OF REPORT
+
+
+START OF REPORT
+irradiation date: 2021-10-11 11:47:30
+aquisition date: 2022-03-17 12:45:31
+10.09    0.64
+END OF REPORT
+
+
+START OF REPORT
+irradiation date: 2021-10-11 11:47:30
+aquisition date: 2022-03-17 12:45:31
+10.09    0.64
+END OF REPORT
+
+
+START OF REPORT
+irradiation date: 2021-10-11 11:47:30
+aquisition date: 2022-03-17 12:45:31
+10.09    0.64
+END OF REPORT
+
+
+START OF REPORT
+irradiation date: 2021-10-11 11:47:30
+aquisition date: 2022-03-17 12:45:31
+10.09    0.64
+END OF REPORT
+
+
+START OF REPORT
+irradiation date: 2021-10-11 11:47:30
+aquisition date: 2022-03-17 12:45:31
+10.09    0.64
+END OF REPORT
+
+
+START OF REPORT
+irradiation date: 2021-10-11 11:47:30
+aquisition date: 2022-03-17 12:45:31
+10.09    0.64
+END OF REPORT
+
+
+START OF REPORT
+irradiation date: 2021-10-11 11:47:30
+aquisition date: 2022-03-17 12:45:31
+10.09    0.64
+END OF REPORT
+
+
+START OF REPORT
+irradiation date: 2021-10-11 11:47:30
+aquisition date: 2022-03-17 12:45:31
+10.12    0.61
+END OF REPORT
+
+
+START OF REPORT
+irradiation date: 2021-10-11 11:47:30
+aquisition date: 2022-03-17 12:45:31
+10.12    0.61
+END OF REPORT
+
+
+START OF REPORT
+irradiation date: 2021-10-11 11:47:30
+aquisition date: 2022-03-17 12:45:31
+10.12    0.61
+END OF REPORT
+
+
+START OF REPORT
+irradiation date: 2021-10-11 11:47:30
+aquisition date: 2022-03-17 12:45:31
+10.12    0.61
+END OF REPORT
+
+
+START OF REPORT
+irradiation date: 2021-10-11 11:47:30
+aquisition date: 2022-03-17 12:45:31
+END OF REPORT
+
+
+START OF REPORT
+irradiation date: 2021-10-11 11:47:30
+aquisition date: 2022-03-17 12:45:31
+END OF REPORT
+
+
+START OF REPORT
+irradiation date: 2021-10-11 11:47:30
+aquisition date: 2022-03-17 12:45:31
+16.63    0.75
+END OF REPORT
+
+
+START OF REPORT
+irradiation date: 2022-03-12 11:47:30
+aquisition date: 2022-03-17 12:45:31
+16.63    0.75
+END OF REPORT
+
+
+START OF REPORT
+irradiation date: 2022-03-12 11:47:30
+aquisition date: 2022-03-17 12:45:31
+0.29    0.29
+END OF REPORT
+
+
+START OF REPORT
+irradiation date: 2022-03-12 11:47:30
+aquisition date: 2022-03-17 12:45:31
+END OF REPORT
+
+
+START OF REPORT
+irradiation date: 2022-03-12 11:47:30
+aquisition date: 2022-03-17 12:45:31
+2.14    0.3
+END OF REPORT
+
+
+START OF REPORT
+irradiation date: 2022-03-12 11:47:30
+aquisition date: 2022-03-17 12:45:31
+2.14    0.3
+END OF REPORT
+
+
+START OF REPORT
+irradiation date: 2022-03-12 11:47:30
+aquisition date: 2022-03-17 12:45:31
+9.57    0.52
+END OF REPORT
+
+
+START OF REPORT
+irradiation date: 2022-03-12 11:47:30
+aquisition date: 2022-03-17 12:45:31
+END OF REPORT
+
+
