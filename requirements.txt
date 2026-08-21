@@ -7,8 +7,8 @@
 
 numpy>=1.24
 matplotlib>=3.6
-
-# Spectrum Analyzer
+# Spectrum Analyzer: Gaussian peak fitting.
+# Radioisotope map: matrix exponential for the decay-chain activity solution.
 scipy>=1.10
 
 # Online mySQL application

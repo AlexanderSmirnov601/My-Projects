@@ -22,6 +22,11 @@ DATE_FORMAT = '%m/%d/%Y %H:%M:%S'
 # A plain "<mass number><element symbol>" library entry, optionally metastable.
 ISOTOPE_NAME = re.compile(r'^(\d{1,3})([A-Za-z]{1,2})m?$')
 
+# How far either side of a detected position to look for the true peak channel,
+# and how far a fitting window may extend before it is cut off.
+PEAK_ANCHOR_HALF_WIDTH = 3
+PEAK_MAX_HALF_WINDOW = 20
+
 
 # --------------------------------------------------------------------------- #
 # configuration
@@ -362,6 +367,11 @@ def interpolate(energies, counts):
 
 def _finish_cut(energies, counts, filtered_spectrum):
     """Package a windowed peak and subtract its interpolated background."""
+    if len(counts) < 6:
+        raise ValueError(
+            f'peak window is only {len(counts)} channels wide; interpolate() '
+            'needs at least 6 to fit a background. Check the peak_detection '
+            'thresholds in settings.ini.')
     result = [energies, counts, filtered_spectrum]
     interpolation, background_area = interpolate(result[0], result[1])
     result.append(interpolation)
@@ -438,28 +448,34 @@ def cut_single_peak(peak_energies, filtered_spectrum, counts, energies, k):
     """Cut a window around an isolated peak, stopping where the slope turns."""
     x = index_of_energy(energies, peak_energies[k - 1])
 
-    # Local argmax. The original called counts.index(max(counts[x-3:x+3])),
-    # which searches the entire spectrum and returns the first channel that
-    # happens to hold the same value -- often nowhere near this peak.
-    neighbourhood = counts[x - 3:x + 3]
-    x = x - 3 + neighbourhood.index(max(neighbourhood))
+    # Anchor on the tallest channel *near* the detected position. The original
+    # called counts.index(max(counts[x-3:x+3])), and list.index() returns the
+    # first channel anywhere in the spectrum holding that value: on the bundled
+    # test file that anchored 19 of 59 peaks on the wrong channel, drifting up
+    # to 4512 channels away. Slicing is also clamped, because a negative start
+    # index would silently wrap around to the end of the spectrum.
+    low = max(x - PEAK_ANCHOR_HALF_WIDTH, 0)
+    high = min(x + PEAK_ANCHOR_HALF_WIDTH, len(counts))
+    neighbourhood = counts[low:high]
+    x = low + neighbourhood.index(max(neighbourhood))
+    x = min(max(x, 1), len(counts) - 2)     # keep x-1 and x+1 addressable
 
-    boundary1 = boundary2 = 20
+    boundary1 = boundary2 = PEAK_MAX_HALF_WINDOW
     slope = (counts[x - 1] - counts[x]) / (energies[x - 1] - energies[x])
     offset = counts[x] - slope * energies[x]
-    for i in range(2, 20):
+    for i in range(2, min(PEAK_MAX_HALF_WINDOW, x + 1)):
         if counts[x - i] > (slope * energies[x - i] + offset):
             boundary1 = i + 1
             break
 
     slope = (counts[x] - counts[x + 1]) / (energies[x] - energies[x + 1])
     offset = counts[x] - slope * energies[x]
-    for i in range(2, 20):
+    for i in range(2, min(PEAK_MAX_HALF_WINDOW, len(counts) - x)):
         if counts[x + i] > (slope * energies[x + i] + offset):
             boundary2 = i + 1
             break
 
-    window = slice(x - boundary1, x + boundary2)
+    window = slice(max(x - boundary1, 0), min(x + boundary2, len(counts)))
     result, _ = _finish_cut(energies[window], counts[window],
                             filtered_spectrum[window])
     return result

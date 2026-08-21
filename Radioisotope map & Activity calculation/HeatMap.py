@@ -24,6 +24,7 @@ from matplotlib.colors import LogNorm
 from matplotlib.patches import Rectangle
 from mpl_toolkits.axes_grid1.inset_locator import mark_inset
 from PIL import Image, ImageTk
+from scipy.linalg import expm
 
 HERE = Path(__file__).resolve().parent
 
@@ -273,17 +274,34 @@ def chain_img(data, line_counter, x, y, ax, depth=0):
 
 
 def activity_calc(decay_const, time, A0):
-    """Bateman solution: activity of every chain member at ``time``."""
-    A = []
-    for k, _ in enumerate(decay_const):
-        eq2 = []
-        for h1 in decay_const[:k + 1]:
-            eq1 = [constant - h1 for constant in decay_const[:k + 1]]
-            eq1.pop(eq1.index(0))
-            eq2.append(np.exp(-h1 * time) / np.prod(eq1))
-        act = A0 * np.prod(decay_const[:k + 1]) / decay_const[0] * np.sum(eq2)
-        A.append(act)
-    return A
+    """Activity of every chain member at ``time``, given ``A0`` of the parent.
+
+    Solves dN/dt = A N for the bidiagonal decay matrix A by matrix exponential,
+    rather than by the Bateman closed form.
+
+    The closed form divides by the products of (lambda_j - lambda_i) for
+    j != i, so it fails outright the moment two chain members share a decay
+    constant -- which happens whenever two members have the same tabulated
+    half-life, and database half-lives are rounded. Nudging the duplicates
+    apart does not rescue it: the terms then scale as 1/epsilon and
+    1/epsilon**2, and with three equal constants that needs ~1e18 of dynamic
+    range, so double precision cancels away every significant figure and the
+    answer can even come out negative.
+
+    expm handles repeated eigenvalues exactly, and agrees with the closed form
+    to ~1e-12 when the decay constants are distinct.
+    """
+    lam = np.asarray(decay_const, dtype=float)
+    size = len(lam)
+
+    matrix = np.zeros((size, size))
+    np.fill_diagonal(matrix, -lam)          # each member decays away
+    if size > 1:
+        matrix[1:, :-1] += np.diag(lam[:-1])  # ...and feeds the next one
+
+    populations = np.zeros(size)
+    populations[0] = A0 / lam[0]
+    return list(lam * (expm(matrix * time) @ populations))
 
 
 def activity_img(data, A0, results_dir):
