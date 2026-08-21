@@ -1,59 +1,131 @@
-import seaborn as sns
-import numpy as np
-import matplotlib.pyplot as plt
-from matplotlib.patches import Rectangle
-from matplotlib.colors import LogNorm
-from mpl_toolkits.axes_grid1.inset_locator import mark_inset
-import tkinter as tk
-from tkinter import ttk
-from PIL import ImageTk, Image
-import mysql.connector
+"""Tkinter viewer for the IsotopeDB nuclide chart.
+
+Three tabs: a half-life heatmap of the whole chart of nuclides with a zoomed
+inset on the isotope you enter, the decay chain leading from it to a stable
+nuclide, and the Bateman activity of every member of that chain over time.
+
+Connection details live in ``config.ini`` next to this file; the read-only
+account's password comes from ``ISOTOPEDB_GUEST_PASSWORD`` or an interactive
+prompt.
+"""
+
+import configparser
 import getpass
+import os
+import tkinter as tk
+from pathlib import Path
+from tkinter import messagebox, ttk
+
+import matplotlib.pyplot as plt
+import mysql.connector
+import numpy as np
+import seaborn as sns
+from matplotlib.colors import LogNorm
+from matplotlib.patches import Rectangle
+from mpl_toolkits.axes_grid1.inset_locator import mark_inset
+from PIL import Image, ImageTk
+
+HERE = Path(__file__).resolve().parent
+
+# Chart of nuclides extent: 120 proton rows by 180 neutron columns.
+CHART_PROTONS = 120
+CHART_NEUTRONS = 180
+STABLE_PLACEHOLDER = 1E+30      # stand-in half-life so stable nuclides colour in
+MAX_CHAIN_LENGTH = 200          # guards against cycles through isomeric states
 
 
-def start(user_input, frame1, frame2, frame3, notebook, cursor):
-    for child in frame2.winfo_children():
-        child.destroy()
-        for child in frame3.winfo_children():
-            child.destroy()
+# --------------------------------------------------------------------------- #
+# configuration
+# --------------------------------------------------------------------------- #
+def load_config():
+    config = configparser.ConfigParser(inline_comment_prefixes=('#', ';'))
+    path = HERE / 'config.ini'
+    if not config.read([path, path.with_suffix('.local.ini')],
+                       encoding='utf-8'):
+        raise FileNotFoundError(f'no config file found at {path}')
+    return config
 
-    cursor.execute('''use IsotopeDB;'''
-                   )
-    cursor.execute('''SELECT DecayModes.hl_sec, DecayModes.isotope_z,
-                   DecayModes.isotope_n, Isotope.name, DecayTypes.name
-                   FROM DecayModes join Isotope join DecayTypes
-                   where DecayModes.isotope_z = Isotope.z
-                   and DecayModes.isotope_n = Isotope.n
-                   and DecayTypes.id = DecayModes.decaytype_id
-                   and DecayModes.e_level_mev=0
-                   order by DecayModes.isotope_z asc,
-                   DecayModes.isotope_n asc,
-                   DecayModes.probability asc;'''
-                   )
-    data = cursor.fetchall()
 
-    xax, yax = 180, 120
-    arr = [[None for x in range(xax)] for y in range(yax)]
-    annotation = [[None for x in range(xax)] for y in range(yax)]
+def use_style(name, fallback='seaborn-v0_8'):
+    """Apply a matplotlib style, tolerating the 3.6 seaborn-style rename."""
+    for candidate in (name, fallback):
+        try:
+            plt.style.use(candidate)
+            return
+        except OSError:
+            continue
+    print(f'warning: neither {name!r} nor {fallback!r} is an available style')
+
+
+# --------------------------------------------------------------------------- #
+# database
+# --------------------------------------------------------------------------- #
+def isotope_chain_data(z, n, data, cursor, visited=None):
+    """Walk the decay chain from (z, n) down to a stable nuclide.
+
+    ``visited`` stops the walk from looping forever when a chain cycles back on
+    itself through an isomeric transition; without it a cycle in the data means
+    unbounded recursion.
+    """
+    if visited is None:
+        visited = set()
+    if (z, n) in visited or len(visited) >= MAX_CHAIN_LENGTH:
+        return data
+    visited.add((z, n))
+
+    cursor.execute(
+                    '''SELECT m.hl_sec, m.isotope_z,
+                    m.isotope_n, i.name, t.name,
+                    m.child_z, m.child_n, m.probability,
+                    m.e_level_mev
+                    FROM DecayModes m join Isotope i  join DecayTypes t
+                    where m.isotope_z = i.z
+                    and m.isotope_n = i.n
+                    and t.id = m.decaytype_id
+                    and m.isotope_z=%s and m.isotope_n=%s
+                    order by m.e_level_mev asc, m.probability desc;''', (z, n)
+                    )
+    arr = cursor.fetchall()
+    if not arr:
+        return data
+
+    if arr[0][5]:
+        data.append(arr[0])
+        isotope_chain_data(arr[0][5], arr[0][6], data, cursor, visited)
+    elif arr[0][4] == 'STABLE' and len(arr) >= 2 and arr[1][4] == 'IT':
+        data.append(arr[1])
+        data.append(arr[0])
+        return data
+    else:
+        data.append(arr[0])
+        return data
+
+    if len(arr) >= 2 and arr[1][7] > 1 and arr[1][-1] == 0:
+        data.append(arr[1])
+        isotope_chain_data(arr[1][5], arr[1][6], data, cursor, visited)
+    return data
+
+
+# --------------------------------------------------------------------------- #
+# figures
+# --------------------------------------------------------------------------- #
+def heatmap_img(data, xy, results_dir):
+    """Half-life heatmap of the whole chart, with an inset around ``xy``."""
+    arr = np.full((CHART_PROTONS, CHART_NEUTRONS), np.nan)
+    annotation = [[None for _ in range(CHART_NEUTRONS)]
+                  for _ in range(CHART_PROTONS)]
 
     for row in data:
-        if row[0] is None:
-            arr[row[1]][row[2]] = 1E+30
-            annotation[row[1]][row[2]] = row[3] + '\n' + str(row[4])
-        else:
-            arr[row[1]][row[2]] = row[0]
-            annotation[row[1]][row[2]] = row[3] + '\n' + str(row[4])
-            annotation[row[1]][row[2]] += '\n' + "{:.2e}".format(row[0]) + ' s'
-
-    for x in range(len(arr)):
-        for y in range(len(arr[x])):
-            if arr[x][y] is None:
-                arr[x][y] = np.nan
+        half_life, z, n, isotope, decay_type = row[0], row[1], row[2], row[3], row[4]
+        arr[z][n] = STABLE_PLACEHOLDER if half_life is None else half_life
+        annotation[z][n] = f'{isotope}\n{decay_type}'
+        if half_life is not None:
+            annotation[z][n] += '\n' + '{:.2e}'.format(half_life) + ' s'
 
     log_norm = LogNorm(vmin=1E-3, vmax=1E+15)
 
-    ax, fig = plt.subplots(figsize=[21, 15])
-    plt.style.use('seaborn')
+    use_style('seaborn')
+    fig, _ = plt.subplots(figsize=[21, 15])
 
     ax = sns.heatmap(arr, cmap='YlGnBu_r',
                      xticklabels=10, yticklabels=10,
@@ -81,17 +153,13 @@ def start(user_input, frame1, frame2, frame3, notebook, cursor):
     for labels in c_bar.ax.yaxis.get_ticklabels():
         labels.set_family("Cambria")
 
-    plt.xlim([1, 178])
-    plt.ylim([0, 118])
-    for line in data:
-        if user_input == line[3]:
-            xy = [line[2], line[1]]
-            break
+    plt.xlim([1, CHART_NEUTRONS - 2])
+    plt.ylim([0, CHART_PROTONS - 2])
 
     axins = ax.inset_axes([0.595, 0.058, 0.45, 0.53])
     for z, line in enumerate(annotation):
-        for n, atom in enumerate(line):
-            if z < xy[1]-2 or z > xy[1]+2 or n < xy[0]-2 or n > xy[0]+2:
+        for n, _ in enumerate(line):
+            if z < xy[1] - 2 or z > xy[1] + 2 or n < xy[0] - 2 or n > xy[0] + 2:
                 annotation[z][n] = np.nan
                 arr[z][n] = np.nan
 
@@ -109,15 +177,8 @@ def start(user_input, frame1, frame2, frame3, notebook, cursor):
     ax1.invert_yaxis()
     ax1.set_facecolor("white")
 
-    if xy[0] >= 2:
-        axins.set_xlim(xy[0]-2, xy[0]+3)
-    else:
-        axins.set_xlim(0, xy[0]+3)
-
-    if xy[1] >= 2:
-        axins.set_ylim(xy[1]-2, xy[1]+3)
-    else:
-        axins.set_ylim(0, xy[1]+3)
+    axins.set_xlim(max(xy[0] - 2, 0), xy[0] + 3)
+    axins.set_ylim(max(xy[1] - 2, 0), xy[1] + 3)
 
     axins.set_xticklabels(axins.get_xmajorticklabels(), fontsize=14,
                           weight='bold', fontname='Cambria'
@@ -126,150 +187,107 @@ def start(user_input, frame1, frame2, frame3, notebook, cursor):
                           weight='bold', fontname='Cambria'
                           )
 
-    patch, pp1, pp2 = mark_inset(ax, axins,
-                                 loc1=1, loc2=1, edgecolor='firebrick',
-                                 linewidth=3, alpha=1
-                                 )
+    _, pp1, pp2 = mark_inset(ax, axins,
+                             loc1=1, loc2=1, edgecolor='firebrick',
+                             linewidth=3, alpha=1
+                             )
     pp1.loc1 = 2
     pp2.loc1 = 2
-    if xy[0] < 120:
-        pp1.loc2 = 1
-        pp2.loc2 = 1
-    else:
-        pp1.loc2 = 3
-        pp2.loc2 = 3
+    pp1.loc2 = pp2.loc2 = 1 if xy[0] < 120 else 3
 
-    plt.savefig('Results/HeatMap.png',
-                bbox_inches='tight')
-    plt.clf()
-    plt.cla()
-    plt.close()
-
-    data = []
-    isotope_chain_data(xy[1], xy[0], data, cursor)
-    set_length = len(data)
-
-    plt.style.use('classic')
-    activity_img(data, 1E+9)
-
-    fig, ax = plt.subplots(figsize=(set_length*3, 7), facecolor='white')
-    ax.set_aspect('equal', 'box')
-    ax.set_facecolor("whitesmoke")
-    ax.axis('off')
-    chain_img(data, 0, 1, 1, ax)
-    plt.savefig('Results/chain.png',
-                bbox_inches='tight')
-    plt.clf()
-    plt.cla()
-    plt.close()
-
-    notebook.tab(frm_chain, state='normal')
-    notebook.tab(frm_activity, state='normal')
-
-    heatmap_pic = Image.open('Results/HeatMap.png')
-    chain_pic = Image.open('Results/chain.png')
-    activity_pic = Image.open('Results/activity.png')
-
-    heatmap_pic = heatmap_pic.resize((960, 640), Image.Resampling.LANCZOS)
-    if chain_pic.size[0] > 960:
-        scale = int(chain_pic.size[1]*960/chain_pic.size[0])
-        chain_pic = chain_pic.resize((960, scale),
-                                     Image.Resampling.LANCZOS
-                                     )
-    activity_pic = activity_pic.resize((960, 640), Image.Resampling.LANCZOS)
-
-    heatmap_pic = ImageTk.PhotoImage(heatmap_pic)
-    chain_pic = ImageTk.PhotoImage(chain_pic)
-    activity_pic = ImageTk.PhotoImage(activity_pic)
-
-    label_heatmap = tk.Label(frame1, image=heatmap_pic)
-    label_chain = tk.Label(frame2, image=chain_pic)
-    label_activity = tk.Label(frame3, image=activity_pic)
-
-    label_heatmap.pack()
-    label_chain.pack()
-    label_activity.pack()
-
-    label_heatmap.place(relx=0, rely=0.995, anchor='sw')
-    label_chain.place(relx=.5, rely=.5, anchor='center')
-    label_chain.place(relx=.5, rely=.5, anchor='center')
-
-    nudat.commit()
-    return
+    path = results_dir / 'HeatMap.png'
+    plt.savefig(path, bbox_inches='tight')
+    plt.close(fig)
+    return path
 
 
-def chain_img(data, line_counter, x, y, ax):
+def chain_img(data, line_counter, x, y, ax, depth=0):
+    """Draw the decay chain as a left-to-right ladder of boxed nuclides."""
+    if depth >= MAX_CHAIN_LENGTH or line_counter >= len(data):
+        return
+
     ax.add_patch(Rectangle((x, y), 1, 1, fill=True,
                            ec='black', fc='skyblue', linewidth=2
                            )
                  )
-    ax.text(x+.5, y+.5, data[line_counter][3],
+    ax.text(x + .5, y + .5, data[line_counter][3],
             fontsize=15, fontname='Cambria',
             color="black", ha="center",
             va="center", weight='bold'
             )
-    for line in data[line_counter+1:]:
+
+    # enumerate, not data.index(line): index() returns the FIRST row equal to
+    # this one, which is the wrong branch whenever a chain repeats a nuclide.
+    for offset, line in enumerate(data[line_counter + 1:], line_counter + 1):
         if (
             line[3] == data[line_counter][3]
-            and data[data.index(line)-1][4] == 'STABLE'
+            and data[offset - 1][4] == 'STABLE'
         ):
-            ax.annotate("", xy=(x+.5, y-1), xytext=(x+.5, y-.25),
+            ax.annotate("", xy=(x + .5, y - 1), xytext=(x + .5, y - .25),
                         arrowprops=dict(width=3, fc='black'),
                         fontname='Cambria'
                         )
-            ax.text(x+.25, y-.625,
-                    str(data[data.index(line)][7])+'%',
+            ax.text(x + .25, y - .625,
+                    str(line[7]) + '%',
                     fontsize=15, color="black", ha="center",
                     va="center", rotation=-90, fontname='Cambria'
                     )
-            ax.text(x+.7, y-.625,
-                    "{:.1e}".format(data[data.index(line)][0])+' s',
+            ax.text(x + .7, y - .625,
+                    "{:.1e}".format(line[0]) + ' s',
                     fontsize=15, color="black", ha="center",
                     va="center", rotation=-90, fontname='Cambria'
                     )
-            ax.text(x+.95, y-.625, str(data[data.index(line)][4])+' decay',
+            ax.text(x + .95, y - .625, str(line[4]) + ' decay',
                     color="black", ha="center", va="center", style='italic',
                     rotation=-90, fontsize=15, fontname='Cambria'
                     )
-            plt.plot(x, y-2.25)
-            chain_img(data, data.index(line)+1, x, y - 2.25, ax)
-
+            plt.plot(x, y - 2.25)
+            chain_img(data, offset + 1, x, y - 2.25, ax, depth + 1)
             break
 
     if data[line_counter][5]:
-        ax.annotate("", xy=(x+2, y+.5), xytext=(x+1.25, y+.5),
+        ax.annotate("", xy=(x + 2, y + .5), xytext=(x + 1.25, y + .5),
                     arrowprops=dict(width=3, fc='black')
                     )
-        if data[line_counter][-1] is None:
-            none = 100
-        else:
-            none = data[line_counter][7]
-        ax.text(x+1.625, y+.25,
-                str(none)+'%', fontname='Cambria',
+        probability = 100 if data[line_counter][-1] is None else data[line_counter][7]
+        ax.text(x + 1.625, y + .25,
+                str(probability) + '%', fontname='Cambria',
                 fontsize=15, color="black",
                 ha="center", va="center"
                 )
-        ax.text(x+1.625, y+.7,
+        ax.text(x + 1.625, y + .7,
                 ("{:.1e}".format(data[line_counter][0]) + ' s'),
                 fontsize=15, color="black",
                 ha="center", va="center", fontname='Cambria'
                 )
-        ax.text(x+1.625, y+.95, str(data[line_counter][4])+' decay',
+        ax.text(x + 1.625, y + .95, str(data[line_counter][4]) + ' decay',
                 fontsize=15, color="black", ha="center",
                 va="center", style='italic', fontname='Cambria'
                 )
-        x += 2.25
-        line_counter += 1
-        chain_img(data, line_counter, x, y, ax)
+        chain_img(data, line_counter + 1, x + 2.25, y, ax, depth + 1)
     else:
-        ax.text(x+.5, y+.25, data[line_counter][4], fontsize=13,
+        ax.text(x + .5, y + .25, data[line_counter][4], fontsize=13,
                 color="black", ha="center", va="center", fontname='Cambria'
                 )
         plt.plot(x, y)
-        return
 
 
-def activity_img(data, A0):
+def activity_calc(decay_const, time, A0):
+    """Bateman solution: activity of every chain member at ``time``."""
+    A = []
+    for k, _ in enumerate(decay_const):
+        eq2 = []
+        for h1 in decay_const[:k + 1]:
+            eq1 = [constant - h1 for constant in decay_const[:k + 1]]
+            eq1.pop(eq1.index(0))
+            eq2.append(np.exp(-h1 * time) / np.prod(eq1))
+        act = A0 * np.prod(decay_const[:k + 1]) / decay_const[0] * np.sum(eq2)
+        A.append(act)
+    return A
+
+
+def activity_img(data, A0, results_dir):
+    """Activity of each chain member against time, on log-log axes."""
     decay_const = []
     titles = []
     summ = 0
@@ -277,24 +295,24 @@ def activity_img(data, A0):
     for line in data:
         if line[4] == 'STABLE':
             break
-        else:
-            t_arr = np.concatenate([t_arr,
-                                    np.linspace(
-                                                summ, summ+line[0]*13,
-                                                700, endpoint=False
-                                                )])
-            summ += line[0]*10
-            decay_const.append(np.log(2)/line[0])
-            titles.append(line[3])
+        t_arr = np.concatenate([t_arr,
+                                np.linspace(
+                                            summ, summ + line[0] * 13,
+                                            700, endpoint=False
+                                            )])
+        summ += line[0] * 10
+        decay_const.append(np.log(2) / line[0])
+        titles.append(line[3])
 
-    # t_arr = np.linspace(0, time, 3000, endpoint=True)
-    act = [[] for i in range(len(titles))]
+    if not titles:
+        return None
 
+    act = [[] for _ in range(len(titles))]
     for t in t_arr:
-        calc = activity_calc(decay_const, t, A0)
-        for i, A in enumerate(calc):
+        for i, A in enumerate(activity_calc(decay_const, t, A0)):
             act[i].append(A)
 
+    use_style('classic')
     figure, ax = plt.subplots(figsize=(11.07, 8), facecolor='white')
     for i, isotope in enumerate(act):
         plt.plot(t_arr, isotope, label=titles[i], linewidth=2)
@@ -305,119 +323,169 @@ def activity_img(data, A0):
     plt.ylabel('Activity, Bq', fontsize=15, fontname='Cambria')
     plt.xticks(fontsize=12, fontname='Cambria')
     plt.yticks(fontsize=12, fontname='Cambria')
-    plt.ylim(bottom=A0/1E8)
-    plt.ylim(top=A0*10)
+    plt.ylim(bottom=A0 / 1E8, top=A0 * 10)
     for line in data:
         if line[0] and line[0] > 1e4:
             plt.xlim(left=1)
             break
 
-    plt.legend(prop='Cambria', fontsize=22)
+    # prop must be a FontProperties/dict; a bare string is not accepted.
+    plt.legend(prop={'family': 'Cambria', 'size': 22})
     ax.grid(visible=True)
     ax.set_facecolor('white')
-    plt.savefig('Results/activity.png',
-                bbox_inches='tight')
-    plt.clf()
-    plt.cla()
-    plt.close()
+
+    path = results_dir / 'activity.png'
+    plt.savefig(path, bbox_inches='tight')
+    plt.close(figure)
+    return path
 
 
-def activity_calc(decay_const, time, A0):
-    A = []
-    eq1 = np.arange(len(decay_const))
-    eq2 = np.arange(len(decay_const))
-    for k, h in enumerate(decay_const):
-        eq2 = []
-        for i, h1 in enumerate(decay_const[:k+1]):
-            eq1 = []
-            for j, h2 in enumerate(decay_const[:k+1]):
-                eq1.append(decay_const[j]-h1)
-            eq1.pop(eq1.index(0))
-            eq2.append(np.exp(-h1*time)/np.prod(eq1))
-        act = A0*np.prod(decay_const[:k+1])/decay_const[0]*np.sum(eq2)
-        A.append(act)
-    return A
+# --------------------------------------------------------------------------- #
+# application
+# --------------------------------------------------------------------------- #
+def load_chart(cursor):
+    """Ground-state half-life and decay type of every nuclide in the database."""
+    cursor.execute('''SELECT DecayModes.hl_sec, DecayModes.isotope_z,
+                   DecayModes.isotope_n, Isotope.name, DecayTypes.name
+                   FROM DecayModes join Isotope join DecayTypes
+                   where DecayModes.isotope_z = Isotope.z
+                   and DecayModes.isotope_n = Isotope.n
+                   and DecayTypes.id = DecayModes.decaytype_id
+                   and DecayModes.e_level_mev=0
+                   order by DecayModes.isotope_z asc,
+                   DecayModes.isotope_n asc,
+                   DecayModes.probability asc;'''
+                   )
+    return cursor.fetchall()
 
 
-def isotope_chain_data(z, n, data, cursor):
-    cursor.execute(
-                    '''use IsotopeDB;'''
-                    )
-    cursor.execute(
-                    '''SELECT m.hl_sec, m.isotope_z,
-                    m.isotope_n, i.name, t.name,
-                    m.child_z, m.child_n, m.probability,
-                    m.e_level_mev
-                    FROM DecayModes m join Isotope i  join DecayTypes t
-                    where m.isotope_z = i.z
-                    and m.isotope_n = i.n
-                    and t.id = m.decaytype_id
-                    and m.isotope_z=%s and m.isotope_n=%s
-                    order by m.e_level_mev asc, m.probability desc;''', (z, n)
-                    )
-    arr = cursor.fetchall()
-    nudat.commit()
-    if arr:
-        if arr[0][5]:
-            data.append(arr[0])
-            isotope_chain_data(arr[0][5], arr[0][6], data, cursor)
-        elif arr[0][4] == 'STABLE' and len(arr) >= 2 and arr[1][4] == 'IT':
-            data.append(arr[1])
-            data.append(arr[0])
-            return data
-        else:
-            data.append(arr[0])
-            return data
-        if len(arr) >= 2 and arr[1][7] > 1 and arr[1][-1] == 0:
-            data.append(arr[1])
-            isotope_chain_data(arr[1][5], arr[1][6], data, cursor)
-    else:
-        return data
+def start(user_input, frame1, frame2, frame3, notebook, cursor, config):
+    """Rebuild all three figures for the isotope named in the entry box."""
+    for frame in (frame2, frame3):
+        for child in frame.winfo_children():
+            child.destroy()
+
+    data = load_chart(cursor)
+
+    xy = None
+    for line in data:
+        if user_input == line[3]:
+            xy = [line[2], line[1]]
+            break
+    if xy is None:
+        messagebox.showerror('Unknown isotope',
+                             f'{user_input!r} is not in the database.\n'
+                             'Enter a name such as 81Ga.')
+        return
+
+    results_dir = HERE / config['paths']['results_dir']
+    results_dir.mkdir(parents=True, exist_ok=True)
+
+    heatmap_path = heatmap_img(data, xy, results_dir)
+
+    chain = []
+    isotope_chain_data(xy[1], xy[0], chain, cursor)
+    if not chain:
+        messagebox.showerror('No decay data',
+                             f'No decay modes recorded for {user_input}.')
+        return
+
+    activity_path = activity_img(chain, config['view'].getfloat('initial_activity'),
+                                 results_dir)
+
+    use_style('classic')
+    fig, ax = plt.subplots(figsize=(len(chain) * 3, 7), facecolor='white')
+    ax.set_aspect('equal', 'box')
+    ax.set_facecolor("whitesmoke")
+    ax.axis('off')
+    chain_img(chain, 0, 1, 1, ax)
+    chain_path = results_dir / 'chain.png'
+    plt.savefig(chain_path, bbox_inches='tight')
+    plt.close(fig)
+
+    notebook.tab(frame2, state='normal')
+    notebook.tab(frame3, state='normal')
+
+    heatmap_pic = Image.open(heatmap_path).resize((960, 640),
+                                                  Image.Resampling.LANCZOS)
+    chain_pic = Image.open(chain_path)
+    if chain_pic.size[0] > 960:
+        scale = int(chain_pic.size[1] * 960 / chain_pic.size[0])
+        chain_pic = chain_pic.resize((960, scale), Image.Resampling.LANCZOS)
+
+    heatmap_pic = ImageTk.PhotoImage(heatmap_pic)
+    chain_pic = ImageTk.PhotoImage(chain_pic)
+
+    label_heatmap = tk.Label(frame1, image=heatmap_pic)
+    label_chain = tk.Label(frame2, image=chain_pic)
+    # Tk does not keep a Python reference to a PhotoImage, so without these the
+    # images are garbage-collected when start() returns and the tabs go blank.
+    label_heatmap.image = heatmap_pic
+    label_chain.image = chain_pic
+
+    label_heatmap.place(relx=0, rely=0.995, anchor='sw')
+    label_chain.place(relx=.5, rely=.5, anchor='center')
+
+    if activity_path is not None:
+        activity_pic = ImageTk.PhotoImage(
+            Image.open(activity_path).resize((960, 640),
+                                             Image.Resampling.LANCZOS))
+        label_activity = tk.Label(frame3, image=activity_pic)
+        label_activity.image = activity_pic
+        label_activity.place(relx=.5, rely=.5, anchor='center')
 
 
-nudat = mysql.connector.connect(
-    host='34.67.94.150',
-    user='guest',
-    password = 'password',
-    )
-cursor = nudat.cursor()
+def main():
+    config = load_config()
+    password = (os.environ.get('ISOTOPEDB_GUEST_PASSWORD')
+                or getpass.getpass('Password for the read-only account: '))
 
-root = tk.Tk()
-root.geometry("960x720")
+    nudat = mysql.connector.connect(
+        host=config['database']['host'],
+        user=config['database']['user'],
+        password=password,
+        database=config['database']['database'],
+        )
+    cursor = nudat.cursor()
 
-notebook = ttk.Notebook(root)
-notebook.pack()
+    try:
+        root = tk.Tk()
+        root.geometry("960x720")
 
-frm_map = tk.Frame(notebook, height=720, width=960, bg='white')
-frm_chain = tk.Frame(notebook, height=720, width=960, bg='white')
-frm_activity = tk.Frame(notebook, height=720, width=960, bg='white')
+        notebook = ttk.Notebook(root)
+        notebook.pack()
 
-frm_map.pack(fill='both', expand=1)
-frm_chain.pack(fill='both', expand=1)
-frm_activity.pack(fill='both', expand=1)
+        frm_map = tk.Frame(notebook, height=720, width=960, bg='white')
+        frm_chain = tk.Frame(notebook, height=720, width=960, bg='white')
+        frm_activity = tk.Frame(notebook, height=720, width=960, bg='white')
 
-notebook.add(frm_map, text='Isotope map')
-notebook.add(frm_chain, text='Decay chains', state='disabled')
-notebook.add(frm_activity, text='Activity plot', state='disabled')
+        for frame in (frm_map, frm_chain, frm_activity):
+            frame.pack(fill='both', expand=1)
+
+        notebook.add(frm_map, text='Isotope map')
+        notebook.add(frm_chain, text='Decay chains', state='disabled')
+        notebook.add(frm_activity, text='Activity plot', state='disabled')
+
+        label1 = tk.Label(frm_map, text='Isotope:', bg='white', font='Cambria')
+        label1.place(relx=0.05, rely=0.04, anchor='center')
+
+        entry1 = tk.Entry(frm_map, width=6, bg='whitesmoke')
+        entry1.insert(0, config['view']['default_isotope'])
+        entry1.place(relx=0.12, rely=0.04, anchor='center')
+
+        btn = tk.Button(frm_map, text='confirm',
+                        command=(lambda: start(entry1.get(), frm_map,
+                                               frm_chain, frm_activity,
+                                               notebook, cursor, config
+                                               ))
+                        )
+        btn.place(relx=0.17, rely=0.04, anchor='center')
+
+        root.mainloop()
+    finally:
+        cursor.close()
+        nudat.close()
 
 
-label1 = tk.Label(frm_map, text='Isotope:', bg='white', font='Cambria')
-label1.pack()
-label1.place(relx=0.05, rely=0.04, anchor='center')
-
-entry1 = tk.Entry(frm_map, width=6, bg='whitesmoke')
-entry1.pack()
-entry1.insert(0, '81Ga')
-entry1.place(relx=0.12, rely=0.04, anchor='center')
-
-btn = tk.Button(frm_map, text='confirm',
-                command=(lambda: start(entry1.get(), frm_map,
-                                       frm_chain, frm_activity,
-                                       notebook, cursor
-                                       ))
-                )
-btn.place(relx=0.17, rely=0.04, anchor='center')
-
-root.mainloop()
-cursor.close()
-nudat.close()
+if __name__ == '__main__':
+    main()
