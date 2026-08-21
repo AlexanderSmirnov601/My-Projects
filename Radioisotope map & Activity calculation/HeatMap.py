@@ -347,8 +347,12 @@ def activity_img(data, A0, results_dir):
             plt.xlim(left=1)
             break
 
-    # prop must be a FontProperties/dict; a bare string is not accepted.
-    plt.legend(prop={'family': 'Cambria', 'size': 22})
+    # prop must be a FontProperties/dict; a bare string is not accepted. The
+    # original passed prop='Cambria' alongside fontsize=22, and prop silently
+    # won, so the legend has always rendered at the default size. Keep that
+    # size to match the published figures; add 'size': 22 here to get the
+    # large legend the fontsize argument was reaching for.
+    plt.legend(prop={'family': 'Cambria'})
     ax.grid(visible=True)
     ax.set_facecolor('white')
 
