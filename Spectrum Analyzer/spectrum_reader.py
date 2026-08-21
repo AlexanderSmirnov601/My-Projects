@@ -14,6 +14,7 @@ from pathlib import Path
 
 import numpy as np
 import matplotlib.pyplot as plt
+from matplotlib.text import Text
 from scipy.optimize import curve_fit
 
 HERE = Path(__file__).resolve().parent
@@ -26,6 +27,9 @@ ISOTOPE_NAME = re.compile(r'^(\d{1,3})([A-Za-z]{1,2})m?$')
 # and how far a fitting window may extend before it is cut off.
 PEAK_ANCHOR_HALF_WIDTH = 3
 PEAK_MAX_HALF_WINDOW = 20
+
+# Most x-axis ticks to place on the summary spectrum plot.
+MAX_XTICKS = 20
 
 
 # --------------------------------------------------------------------------- #
@@ -593,6 +597,80 @@ def analyse_peak(target_energy, peak_energies, peak_matches, counts, energies,
 # --------------------------------------------------------------------------- #
 # summary plot
 # --------------------------------------------------------------------------- #
+def tick_step(span):
+    """A round tick spacing that stays readable at any window width.
+
+    The step used to be hard-coded at 10 keV, which is right for the 200 keV
+    window the tool shipped with but runs the labels together on a wider one.
+    """
+    for step in (0.5, 1, 2, 5, 10, 20, 25, 50, 100, 200, 250, 500, 1000):
+        if span / step <= MAX_XTICKS:
+            return step
+    return 2000
+
+
+def _overlaps(a, b, pad):
+    return (a.x0 < b.x1 + pad and a.x1 > b.x0 - pad
+            and a.y0 < b.y1 + pad and a.y1 > b.y0 - pad)
+
+
+def _text_extent(annotation, renderer):
+    """Pixel box of the annotation's text only.
+
+    Annotation.get_window_extent() returns the union of the text and the
+    connector arrow. The arrow stays anchored at the peak, so that union's
+    bottom edge never rises however far the label moves -- collision testing
+    on it can never resolve anything.
+    """
+    annotation.update_positions(renderer)
+    return Text.get_window_extent(annotation)
+
+
+def spread_labels(ax, annotations, pad=2.0):
+    """Lift peak labels until none of them overlap.
+
+    Neighbouring peaks used to have their vertical labels drawn straight over
+    one another, which is why several are unreadable in the published figures.
+    Each label is measured on the real renderer and pushed up until it clears
+    every label already placed, working left to right; the connector line back
+    to its peak grows to match.
+    """
+    if not annotations:
+        return
+
+    figure = ax.get_figure()
+    figure.canvas.draw()
+    renderer = figure.canvas.get_renderer()
+
+    pixels_per_unit = (ax.transData.transform((0, 1))[1]
+                       - ax.transData.transform((0, 0))[1])
+    if pixels_per_unit <= 0:
+        return
+
+    placed = []
+    for annotation in sorted(annotations, key=lambda a: a.xyann[0]):
+        box = _text_extent(annotation, renderer)
+        for _ in range(len(annotations) + 5):
+            clash = next((other for other in placed
+                          if _overlaps(box, other, pad)), None)
+            if clash is None:
+                break
+            # Move xyann, not set_position(): an Annotation recomputes its
+            # drawn position from xyann on every draw, so set_position() is
+            # silently overwritten and the label never actually moves.
+            x, y = annotation.xyann
+            annotation.xyann = (
+                x, y + ((clash.y1 + pad) - box.y0) / pixels_per_unit)
+            box = _text_extent(annotation, renderer)
+        placed.append(box)
+
+    # Tighten the headroom back down onto the tallest label. Shrinking the y
+    # range only ever moves the labels further apart, so it cannot reintroduce
+    # an overlap.
+    highest = max(box.y1 for box in placed) + 4 * pad
+    ax.set_ylim(top=ax.transData.inverted().transform((0, highest))[1])
+
+
 def plot_spectrum(counts, energies, peak_energies, peak_matches, settings):
     """Bar chart of the spectrum window with identified peaks annotated."""
     low = settings['plot'].getfloat('energy_min_kev')
@@ -606,11 +684,18 @@ def plot_spectrum(counts, energies, peak_energies, peak_matches, settings):
     window = slice(int(inside[0]), int(inside[-1]) + 1)
     counts, energies = counts[window], energies[window]
 
-    plt.figure(figsize=(16, 9))
-    plt.bar(energies, counts, width=0.35)
-    plt.xticks(np.arange(low, high, step=10))
+    figure, ax = plt.subplots(figsize=(16, 9))
+    width = (high - low) / len(energies) * 1.6
+    ax.bar(energies, counts, width=width)
+
+    step = tick_step(high - low)
+    ax.set_xticks(np.arange(low, high + step / 2, step))
+    ax.set_xlim(low, high)
+    # Headroom for the labels; spread_labels() trims it back afterwards.
+    ax.set_ylim(bottom=0, top=max(counts) * 2.5)
 
     peak_lookup = {energy: i for i, energy in enumerate(peak_energies)}
+    annotations = []
     for k, energy in enumerate(energies):
         i = peak_lookup.get(energy)
         if i is None or counts[k] <= max(counts) / label_threshold:
@@ -618,28 +703,28 @@ def plot_spectrum(counts, energies, peak_energies, peak_matches, settings):
         match = peak_matches[i]
         if len(match) == 2:
             label = f'{match[0][2]}/{match[1][2]}?'
-            lift = max(counts) / 25
         elif match != ['null']:
             label = match[0][2]
-            lift = max(counts) / 10
         else:
             continue
-        plt.annotate(label, xy=(energy, counts[k] + max(counts) / 45),
-                     xytext=(energy, counts[k] + lift),
-                     arrowprops=dict(arrowstyle='-', connectionstyle='arc3'),
-                     fontsize=12, rotation='vertical', ha='center',
-                     va='bottom', fontweight='bold')
+        annotations.append(ax.annotate(
+            label, xy=(energy, counts[k] + max(counts) / 45),
+            xytext=(energy, counts[k] + max(counts) / 20),
+            arrowprops=dict(arrowstyle='-', connectionstyle='arc3',
+                            linewidth=0.8, color='0.4'),
+            fontsize=12, rotation='vertical', ha='center',
+            va='bottom', fontweight='bold'))
 
-    plt.xlabel('Energy of Gamma quants, keV', fontsize=12)
-    plt.ylabel('counts', fontsize=12)
-    plt.xticks(fontsize=12)
-    plt.yticks(fontsize=12)
-    plt.tick_params(axis='x', which='both', bottom=True, top=False,
-                    labelbottom=True)
-    plt.tick_params(axis='y', which='both', right=False, left=True,
-                    labelleft=True)
+    spread_labels(ax, annotations)
+
+    ax.set_xlabel('Energy of Gamma quants, keV', fontsize=12)
+    ax.set_ylabel('counts', fontsize=12)
+    ax.tick_params(axis='x', which='both', bottom=True, top=False,
+                   labelbottom=True, labelsize=12)
+    ax.tick_params(axis='y', which='both', right=False, left=True,
+                   labelleft=True, labelsize=12)
     for position in ('right', 'top'):
-        plt.gca().spines[position].set_visible(False)
+        ax.spines[position].set_visible(False)
     plt.show()
 
 
