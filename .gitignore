@@ -10,7 +10,7 @@ venv/
 .env
 
 # Generated run logs
-Spectrum Analyzer/report.txt
+gamma-spectrum-analyzer/report.txt
 
 # OS / editor cruft
 .DS_Store

@@ -85,10 +85,8 @@ def read_spe(path, encoding):
     Returns ``(counts, meas_time, dead_time, acquired_at, calibration)``, where
     ``calibration`` holds the $MCA_CAL (or $ENER_FIT) polynomial coefficients,
     lowest order first, or ``None`` when the file carries no calibration.
-
-    Note on $MEAS_TIM: Maestro writes "<live time> <real time>". This keeps the
-    original program's convention of passing the second value straight through
-    as the dead time.
+    $MEAS_TIM holds "<live time> <real time>"; the second value is used as the
+    dead time.
     """
     with open(path, 'r', encoding=encoding, errors='replace') as handle:
         lines = handle.read().splitlines()
@@ -130,11 +128,7 @@ def read_spe(path, encoding):
 
 
 def load_gamma_library(path, max_mass_number):
-    """Read ``energy;intensity;isotope;half_life;unit`` records once, up front.
-
-    The original re-opened and re-parsed this whole file for every detected
-    peak, and split each line five to seven separate times.
-    """
+    """Read ``energy;intensity;isotope;half_life;unit`` records into a list."""
     library = []
     with open(path, 'r', encoding='utf-8', errors='replace') as handle:
         for line in handle:
@@ -187,13 +181,7 @@ def gauss_fit2(x, y, x1, y1, x0, y0):
 # spectrum processing
 # --------------------------------------------------------------------------- #
 def moving_average(values):
-    """Symmetric 3-point moving average; the two endpoints are left untouched.
-
-    The previous version overwrote ``a[i]`` in place, so the next iteration read
-    an already-smoothed ``a[i-1]``. That turned it into a one-sided recursive
-    filter which smeared every peak towards higher channels and shifted its
-    centroid -- and the centroid is what the energy assignment rests on.
-    """
+    """Symmetric 3-point moving average; the two endpoints are left untouched."""
     values = np.asarray(values, dtype=float)
     smoothed = values.copy()
     smoothed[1:-1] = (values[:-2] + values[1:-1] + values[2:]) / 3
@@ -217,11 +205,7 @@ def convolution_filter(counts):
 
 
 def apply_thresholds(filtered, energies, bands, sensitivity):
-    """Zero everything that is not a credible peak, band by band.
-
-    ``max(filtered)`` is evaluated once here; the original recomputed it on
-    every iteration of every band loop, rescanning all 16k channels each time.
-    """
+    """Zero everything that is not a credible peak, band by band."""
     search = np.asarray(filtered, dtype=float).copy()
 
     keep = np.zeros(len(search), dtype=bool)
@@ -452,12 +436,8 @@ def cut_single_peak(peak_energies, filtered_spectrum, counts, energies, k):
     """Cut a window around an isolated peak, stopping where the slope turns."""
     x = index_of_energy(energies, peak_energies[k - 1])
 
-    # Anchor on the tallest channel *near* the detected position. The original
-    # called counts.index(max(counts[x-3:x+3])), and list.index() returns the
-    # first channel anywhere in the spectrum holding that value: on the bundled
-    # test file that anchored 19 of 59 peaks on the wrong channel, drifting up
-    # to 4512 channels away. Slicing is also clamped, because a negative start
-    # index would silently wrap around to the end of the spectrum.
+    # Anchor on the tallest channel near the detected position; the slice is
+    # clamped so a peak at the spectrum edge cannot wrap around.
     low = max(x - PEAK_ANCHOR_HALF_WIDTH, 0)
     high = min(x + PEAK_ANCHOR_HALF_WIDTH, len(counts))
     neighbourhood = counts[low:high]
@@ -598,11 +578,7 @@ def analyse_peak(target_energy, peak_energies, peak_matches, counts, energies,
 # summary plot
 # --------------------------------------------------------------------------- #
 def tick_step(span):
-    """A round tick spacing that stays readable at any window width.
-
-    The step used to be hard-coded at 10 keV, which is right for the 200 keV
-    window the tool shipped with but runs the labels together on a wider one.
-    """
+    """A round tick spacing that keeps at most MAX_XTICKS ticks in the window."""
     for step in (0.5, 1, 2, 5, 10, 20, 25, 50, 100, 200, 250, 500, 1000):
         if span / step <= MAX_XTICKS:
             return step
@@ -615,12 +591,11 @@ def _overlaps(a, b, pad):
 
 
 def _text_extent(annotation, renderer):
-    """Pixel box of the annotation's text only.
+    """Pixel box of the annotation's text alone.
 
-    Annotation.get_window_extent() returns the union of the text and the
-    connector arrow. The arrow stays anchored at the peak, so that union's
-    bottom edge never rises however far the label moves -- collision testing
-    on it can never resolve anything.
+    Annotation.get_window_extent() unions the text with the connector arrow,
+    which stays anchored at the peak, so collision tests must measure the text
+    by itself.
     """
     annotation.update_positions(renderer)
     return Text.get_window_extent(annotation)
@@ -629,11 +604,10 @@ def _text_extent(annotation, renderer):
 def spread_labels(ax, annotations, pad=2.0):
     """Lift peak labels until none of them overlap.
 
-    Neighbouring peaks used to have their vertical labels drawn straight over
-    one another, which is why several are unreadable in the published figures.
-    Each label is measured on the real renderer and pushed up until it clears
-    every label already placed, working left to right; the connector line back
-    to its peak grows to match.
+    Each label is measured on the renderer and pushed up until it clears every
+    label already placed, working left to right; the connector line back to its
+    peak grows to match. Labels near the window edge are first shifted inward
+    so they stay inside the axes.
     """
     if not annotations:
         return
@@ -672,18 +646,15 @@ def spread_labels(ax, annotations, pad=2.0):
                           if _overlaps(box, other, pad)), None)
             if clash is None:
                 break
-            # Move xyann, not set_position(): an Annotation recomputes its
-            # drawn position from xyann on every draw, so set_position() is
-            # silently overwritten and the label never actually moves.
+            # An Annotation positions its text from xyann on every draw, so
+            # xyann is the value to move.
             x, y = annotation.xyann
             annotation.xyann = (
                 x, y + ((clash.y1 + pad) - box.y0) / pixels_per_unit)
             box = _text_extent(annotation, renderer)
         placed.append(box)
 
-    # Tighten the headroom back down onto the tallest label. Shrinking the y
-    # range only ever moves the labels further apart, so it cannot reintroduce
-    # an overlap.
+    # Tighten the headroom back down onto the tallest label.
     highest = max(box.y1 for box in placed) + 4 * pad
     ax.set_ylim(top=ax.transData.inverted().transform((0, highest))[1])
 

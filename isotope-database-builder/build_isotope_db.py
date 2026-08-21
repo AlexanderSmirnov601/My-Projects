@@ -249,8 +249,7 @@ def insert_isotopes(cursor, connection, og_data, decay_types):
 
         decay_modes = row['decayModes']
         if pd.isna(decay_modes):
-            # .loc, not og_data['decayModes'][index]: chained assignment raises
-            # ChainedAssignmentError on pandas 3 and silently does nothing.
+            # A missing decayModes entry marks a stable nuclide.
             decay_modes = 'STABLE'
             og_data.loc[index, 'decayModes'] = decay_modes
 

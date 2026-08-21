@@ -1,14 +1,18 @@
 # My-Projects
 
-Three tools written for nuclear-physics work: an ETL job that turns the NNDC
-NuDat export into a normalized MySQL database, a desktop viewer for the chart of
-nuclides built on top of it, and a gamma-spectrum analyzer.
+Three tools from nuclear-physics work: a builder that turns the NNDC NuDat
+export into a normalized MySQL database, a desktop viewer for the chart of
+nuclides built on that database, and a gamma-spectrum analyzer for activation
+measurements.
 
 | Project | What it does |
 | --- | --- |
-| [Online mySQL application](<Online mySQL application>) | Parses the NNDC/NuDat CSV export, derives the Z/N change of every decay mode, and loads it into the `IsotopeDB` schema. |
-| [Radioisotope map & Activity calculation](<Radioisotope map & Activity calculation>) | Tkinter app: half-life heatmap of the chart of nuclides, decay-chain diagrams and Bateman activity curves. |
-| [Spectrum Analyzer](<Spectrum Analyzer>) | Reads Ortec `.Spe` spectra, finds and fits peaks, identifies isotopes against a gamma library, and computes activity and production yield. |
+| [isotope-database-builder](isotope-database-builder) | Parses the NNDC/NuDat CSV export, derives the Z/N change of every decay mode, and loads the result into the `IsotopeDB` MySQL schema. |
+| [nuclide-chart-viewer](nuclide-chart-viewer) | Tkinter app over `IsotopeDB`: half-life heatmap of the chart of nuclides, decay-chain diagrams, and activity-vs-time curves for a chosen isotope. |
+| [gamma-spectrum-analyzer](gamma-spectrum-analyzer) | Reads Ortec `.Spe` spectra, finds and fits peaks, identifies isotopes against a gamma library, and computes activity and production yield. |
+
+Each of the two graphical projects ships a `sample_outputs.pdf` collecting its
+figures with short explanations.
 
 ## Setup
 
@@ -22,10 +26,11 @@ On Debian/Ubuntu the Tkinter viewer also needs the `python3-tk` system package.
 
 ## Configuration
 
-No credentials or machine-specific paths are stored in the source. Each project
-reads a config file next to its script — `settings.ini` for the Spectrum
-Analyzer, `config.ini` for the two database projects — and each supports a
-gitignored `*.local.ini` override for machine-specific values.
+No credentials or machine-specific paths live in the source. Each project reads
+a config file next to its script — `settings.ini` for the spectrum analyzer,
+`config.ini` for the two database projects — and each supports a gitignored
+`*.local.ini` override for machine-specific values.
 
-Database passwords are never written to a file. They are read from
-`ISOTOPEDB_PASSWORD` and `ISOTOPEDB_GUEST_PASSWORD`, and prompted for when unset.
+Database passwords are never written to a file: they are read from
+`ISOTOPEDB_PASSWORD` / `ISOTOPEDB_GUEST_PASSWORD`, with an interactive prompt
+as fallback.

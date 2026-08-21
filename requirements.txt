@@ -7,14 +7,14 @@
 
 numpy>=1.24
 matplotlib>=3.6
-# Spectrum Analyzer: Gaussian peak fitting.
-# Radioisotope map: matrix exponential for the decay-chain activity solution.
+# gamma-spectrum-analyzer: Gaussian peak fitting.
+# nuclide-chart-viewer: matrix exponential for the decay-chain activity.
 scipy>=1.10
 
-# Online mySQL application
+# isotope-database-builder
 pandas>=2.0
 mysql-connector-python>=8.0
 
-# Radioisotope map & Activity calculation
+# nuclide-chart-viewer
 seaborn>=0.12
 Pillow>=9.0

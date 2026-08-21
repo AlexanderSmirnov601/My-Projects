@@ -64,9 +64,8 @@ def use_style(name, fallback='seaborn-v0_8'):
 def isotope_chain_data(z, n, data, cursor, visited=None):
     """Walk the decay chain from (z, n) down to a stable nuclide.
 
-    ``visited`` stops the walk from looping forever when a chain cycles back on
-    itself through an isomeric transition; without it a cycle in the data means
-    unbounded recursion.
+    ``visited`` stops the walk when a chain cycles back on itself through an
+    isomeric transition.
     """
     if visited is None:
         visited = set()
@@ -217,8 +216,8 @@ def chain_img(data, line_counter, x, y, ax, depth=0):
             va="center", weight='bold'
             )
 
-    # enumerate, not data.index(line): index() returns the FIRST row equal to
-    # this one, which is the wrong branch whenever a chain repeats a nuclide.
+    # A repeat of this nuclide after a STABLE row opens a second decay branch,
+    # drawn downward.
     for offset, line in enumerate(data[line_counter + 1:], line_counter + 1):
         if (
             line[3] == data[line_counter][3]
@@ -276,20 +275,10 @@ def chain_img(data, line_counter, x, y, ax, depth=0):
 def activity_calc(decay_const, time, A0):
     """Activity of every chain member at ``time``, given ``A0`` of the parent.
 
-    Solves dN/dt = A N for the bidiagonal decay matrix A by matrix exponential,
-    rather than by the Bateman closed form.
-
-    The closed form divides by the products of (lambda_j - lambda_i) for
-    j != i, so it fails outright the moment two chain members share a decay
-    constant -- which happens whenever two members have the same tabulated
-    half-life, and database half-lives are rounded. Nudging the duplicates
-    apart does not rescue it: the terms then scale as 1/epsilon and
-    1/epsilon**2, and with three equal constants that needs ~1e18 of dynamic
-    range, so double precision cancels away every significant figure and the
-    answer can even come out negative.
-
-    expm handles repeated eigenvalues exactly, and agrees with the closed form
-    to ~1e-12 when the decay constants are distinct.
+    Solves dN/dt = A N for the bidiagonal decay matrix A by matrix exponential.
+    Unlike the Bateman closed form, expm handles chain members with equal decay
+    constants (repeated eigenvalues), which occur whenever two members share a
+    tabulated half-life.
     """
     lam = np.asarray(decay_const, dtype=float)
     size = len(lam)
@@ -347,11 +336,7 @@ def activity_img(data, A0, results_dir):
             plt.xlim(left=1)
             break
 
-    # prop must be a FontProperties/dict; a bare string is not accepted. The
-    # original passed prop='Cambria' alongside fontsize=22, and prop silently
-    # won, so the legend has always rendered at the default size. Keep that
-    # size to match the published figures; add 'size': 22 here to get the
-    # large legend the fontsize argument was reaching for.
+    # Add 'size' to the dict to enlarge the legend.
     plt.legend(prop={'family': 'Cambria'})
     ax.grid(visible=True)
     ax.set_facecolor('white')
@@ -440,8 +425,8 @@ def start(user_input, frame1, frame2, frame3, notebook, cursor, config):
 
     label_heatmap = tk.Label(frame1, image=heatmap_pic)
     label_chain = tk.Label(frame2, image=chain_pic)
-    # Tk does not keep a Python reference to a PhotoImage, so without these the
-    # images are garbage-collected when start() returns and the tabs go blank.
+    # Tk keeps no reference to a PhotoImage; hold one on each label so the
+    # images are not garbage-collected.
     label_heatmap.image = heatmap_pic
     label_chain.image = chain_pic
 
