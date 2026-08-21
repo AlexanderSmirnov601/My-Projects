@@ -1,9 +1,11 @@
-# My-Projects
+# Nuclear Data Analysis Toolkit
 
-Three tools from nuclear-physics work: a builder that turns the NNDC NuDat
-export into a normalized MySQL database, a desktop viewer for the chart of
-nuclides built on that database, and a gamma-spectrum analyzer for activation
-measurements.
+Tools from nuclear-physics work, covering the full path from raw detector
+files and public nuclear databases to identified isotopes, activities and
+visualizations: a builder that turns the NNDC NuDat export into a normalized
+MySQL database, a desktop viewer for the chart of nuclides built on that
+database, a gamma-spectrum analyzer for activation measurements, and rebuilds
+of both analysis tools on the public IAEA nuclear-data REST API.
 
 | Project | What it does |
 | --- | --- |
