@@ -644,8 +644,25 @@ def spread_labels(ax, annotations, pad=2.0):
 
     pixels_per_unit = (ax.transData.transform((0, 1))[1]
                        - ax.transData.transform((0, 0))[1])
-    if pixels_per_unit <= 0:
+    pixels_per_x_unit = (ax.transData.transform((1, 0))[0]
+                         - ax.transData.transform((0, 0))[0])
+    if pixels_per_unit <= 0 or pixels_per_x_unit <= 0:
         return
+
+    # Keep every label inside the axes horizontally: a peak at the very edge
+    # of the window otherwise draws its label over the y-axis. The connector
+    # still points at the true peak position, only the text shifts inward.
+    axes_box = ax.get_window_extent(renderer)
+    for annotation in annotations:
+        box = _text_extent(annotation, renderer)
+        shift_px = 0.0
+        if box.x0 < axes_box.x0 + pad:
+            shift_px = (axes_box.x0 + pad) - box.x0
+        elif box.x1 > axes_box.x1 - pad:
+            shift_px = (axes_box.x1 - pad) - box.x1
+        if shift_px:
+            x, y = annotation.xyann
+            annotation.xyann = (x + shift_px / pixels_per_x_unit, y)
 
     placed = []
     for annotation in sorted(annotations, key=lambda a: a.xyann[0]):
