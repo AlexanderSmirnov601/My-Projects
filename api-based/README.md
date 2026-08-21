@@ -6,7 +6,11 @@ public [IAEA Live Chart of Nuclides API](https://nds.iaea.org/relnsd/vcharthtml/
 
 Both tools import their pipeline and figure code from the original projects —
 only the data layer differs — so results are directly comparable between the
-file-based and API-based versions.
+file-based and API-based versions. All figures, with commentary and the
+comparison against the file-based versions, are collected in
+[sample_outputs.pdf](sample_outputs.pdf).
+
+![Spectrum identified against the IAEA API library](histogram_api.png)
 
 | Script | Replaces | Data source |
 | --- | --- | --- |
@@ -61,3 +65,5 @@ peaks can resolve differently. Two systematic effects are worth knowing:
 Nuclide data otherwise reflects current IAEA evaluations rather than the
 2013-era NuDat export; several half-lives that were placeholders there are
 measured values here.
+
+![Curated vs API library identifications](comparison.png)

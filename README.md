@@ -12,8 +12,9 @@ measurements.
 | [gamma-spectrum-analyzer](gamma-spectrum-analyzer) | Reads Ortec `.Spe` spectra, finds and fits peaks, identifies isotopes against a gamma library, and computes activity and production yield. |
 | [api-based](api-based) | Both tools above rebuilt on the public IAEA Live Chart of Nuclides API — no local database or curated library needed. |
 
-Each of the two graphical projects ships a `sample_outputs.pdf` collecting its
-figures with short explanations.
+Each graphical project ships a `sample_outputs.pdf` collecting its figures
+with short explanations; the one in `api-based` also carries the comparison
+against the file-based versions.
 
 ## Setup
 
