@@ -67,3 +67,14 @@ Nuclide data otherwise reflects current IAEA evaluations rather than the
 measured values here.
 
 ![Curated vs API library identifications](comparison.png)
+
+## Nuclide chart from the API
+
+The chart viewer draws the same figures as the database version from the bulk
+ground-states table — 3386 nuclides in one request. The 81Ga decay chain comes
+out identical member for member, including the 11.9 % beta-delayed-neutron
+branch:
+
+![Chart of nuclides from IAEA data](chart_api.png)
+
+![81Ga decay chain from IAEA data](chain_api.png)
