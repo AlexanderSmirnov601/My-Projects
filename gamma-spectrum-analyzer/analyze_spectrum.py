@@ -309,7 +309,15 @@ def match_library(peak_energies, library, tolerance, hours_after_irradiation):
 
 
 def deduplicate(peak_matches):
-    """Drop alternatives that name an isotope already claimed by another peak."""
+    """Trim ambiguous matches without overriding the ranking.
+
+    Within one peak, the second candidate is dropped when it repeats the
+    first's isotope or line energy. Across peaks, when two peaks share a
+    primary isotope -- or a primary mass number, since members of one mass
+    chain coexist in a sample -- the shared primary already explains both
+    peaks and their secondary candidates are dropped. A peak's own
+    best-ranked candidate is never displaced.
+    """
     for k in range(len(peak_matches)):
         if len(peak_matches[k]) == 2:
             if (peak_matches[k][0][2] == peak_matches[k][1][2]
@@ -317,20 +325,16 @@ def deduplicate(peak_matches):
                 del peak_matches[k][1]
 
         for i in range(k + 1, len(peak_matches)):
-            if len(peak_matches[i]) == 2:
-                if peak_matches[k][0][2] == peak_matches[i][0][2]:
-                    del peak_matches[i][1]
-                    if len(peak_matches[k]) == 2:
-                        del peak_matches[k][1]
-                elif peak_matches[k][0][2] == peak_matches[i][1][2]:
-                    del peak_matches[i][0]
-                    if len(peak_matches[k]) == 2:
-                        del peak_matches[k][1]
-            if len(peak_matches[i]) == 2:
-                if peak_matches[k][0][2][0:3] == peak_matches[i][0][2][0:3]:
-                    del peak_matches[i][1]
-                    if len(peak_matches[k]) == 2:
-                        del peak_matches[k][1]
+            if (len(peak_matches[i]) == 2
+                    and peak_matches[k][0][2] == peak_matches[i][0][2]):
+                del peak_matches[i][1]
+                if len(peak_matches[k]) == 2:
+                    del peak_matches[k][1]
+            if (len(peak_matches[i]) == 2
+                    and peak_matches[k][0][2][0:3] == peak_matches[i][0][2][0:3]):
+                del peak_matches[i][1]
+                if len(peak_matches[k]) == 2:
+                    del peak_matches[k][1]
 
 
 # --------------------------------------------------------------------------- #

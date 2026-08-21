@@ -77,13 +77,22 @@ dataset, so the hand curation becomes a computed transform:
   208Tl, 228Ac, 137Cs, …) are pinned to a fixed 30 d effective half-life:
   a constant room-background line competes like a slowly decaying source
   instead of being ranked away for its primordial half-life.
+- **Reachable products.** The sample context is a proton-irradiated 232Th
+  target: candidate parents must be fission fragments or light activation
+  products (Z ≤ 66) or actinides from (p,xn) and the target's own chain
+  (Z 88–93). Nothing populates the lead–astatine gap between, so lines from
+  it are dropped (background-pinned lines exempt). Set `REACHABLE_Z_RANGES`
+  to `[]` to disable for a different sample.
 
 The committed `data/api_gamma_library.csv` keeps the raw `state_hl_sec` next
 to the effective values and a `background` flag, so the manipulation stays
 inspectable, and each step can be disabled through the constants at the top
-of `iaea_client.py`. With the curation stage on, identification agreement
-with the curated library rises from 43 to 46 of 59 peaks, and the
-disagreements that remain are candidate-set breadth, not physics.
+of `iaea_client.py`. With the full curation stage on, identification agreement
+with the curated library reaches 48 of 59 peaks. Most remaining differences
+are peaks where the complete line list argues for a different fission product
+than the curated set offered — several confirmed by sibling lines both
+libraries agree on — plus the actinide K X-rays near 93–98 keV and the 511 keV
+annihilation line, which no gamma library can name correctly.
 
 Nuclide data otherwise reflects current IAEA evaluations rather than the
 2013-era NuDat export; several half-lives that were placeholders there are

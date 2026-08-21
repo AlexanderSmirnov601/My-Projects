@@ -53,6 +53,15 @@ EQUILIBRIUM_MAX_PARENT_S = 3.156E7          # one year
 # them competitive in the ranking -- the curated library achieved the same by
 # carrying them with no competitors in the match window.
 BACKGROUND_EFFECTIVE_HALF_LIFE = (30.0, 'd')
+
+# Post-pull curation: reachable products. The sample context is a
+# proton-irradiated 232Th target, so a line's parent must be a fission
+# fragment or light activation product (Z up to dysprosium) or an actinide
+# from (p,xn) reactions and the target's own chain. Nothing populates the
+# lead-astatine gap in between; candidates there are noise from the size of
+# the library. Background-pinned lines are exempt. Empty list disables the
+# filter.
+REACHABLE_Z_RANGES = [(3, 66), (88, 93)]
 KNOWN_BACKGROUND_LINES = [                  # (energy keV, isotope)
     (1460.82, '40K'),
     (661.657, '137Cs'),
@@ -244,10 +253,12 @@ def feeder_half_lives(states=None):
 
 
 def curate_library(library, states=None):
-    """The post-pull stage: equilibrium half-lives and background pinning.
+    """The post-pull stage: equilibrium half-lives, background pinning, and
+    the reachable-products filter.
 
     Adds ``eff_hl_sec`` (the half-life the ranking should use), the analyzer's
-    ``half_life``/``unit`` split of it, and a ``background`` flag. The raw
+    ``half_life``/``unit`` split of it, and a ``background`` flag, then drops
+    lines whose parent lies outside REACHABLE_Z_RANGES. The raw
     ``state_hl_sec`` column is kept so the manipulation stays inspectable.
     """
     feeders = feeder_half_lives(states)
@@ -263,6 +274,12 @@ def curate_library(library, states=None):
                 & ((library.energy - energy).abs() < 0.5))
         library.loc[mask, 'eff_hl_sec'] = seconds
         library.loc[mask, 'background'] = True
+
+    if REACHABLE_Z_RANGES:
+        reachable = library.background.copy()
+        for low, high in REACHABLE_Z_RANGES:
+            reachable |= (library.z >= low) & (library.z <= high)
+        library = library[reachable]
 
     split = [_half_life_units(s) for s in library.eff_hl_sec]
     library = library.assign(
