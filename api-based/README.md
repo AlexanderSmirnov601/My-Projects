@@ -41,12 +41,18 @@ The curated `gamma_library.txt` carries ~2k hand-picked lines; the API library
 carries every catalogued line in the selection window (~50k), so ambiguous
 peaks can resolve differently. Two systematic effects are worth knowing:
 
-- **Equilibrium half-lives.** The curated library encodes parent-daughter
-  equilibrium: its 140.5 keV entry carries the 66 h half-life of the feeding
-  99Mo, not the 6 h of 99mTc itself, so the line still ranks well days after
-  irradiation. The API reports each state's own half-life, and the ranking
-  then discards short-lived daughters that are in fact still present through
-  their parent.
+- **Equilibrium half-lives.** The curated library was built by hand with
+  transient equilibrium deliberately encoded in the half-life field: a
+  generator-fed daughter is listed under the half-life of the nuclide that
+  rate-limits its decay in a real sample, not its own. Its 140.5 keV entry
+  carries the 66 h half-life of the feeding 99Mo rather than the 6 h of 99mTc
+  itself, which is exactly how that activity behaves in a sample days after
+  irradiation — so the line still ranks correctly when the raw state
+  half-life would have written it off. The API reports each state's own
+  half-life, and the ranking then discards short-lived daughters that are in
+  fact still present through their parent. Reproducing this properly in the
+  API version would mean modelling parent feeding in the ranking; it would
+  arrive at the same answer the curation encodes in a text file.
 - **Natural background.** The ranking scores lines by production-and-decay
   plausibility, which correctly favours activation products — and therefore
   ranks primordial background lines (40K at 1461 keV) below them, where the
