@@ -51,16 +51,39 @@ peaks can resolve differently. Two systematic effects are worth knowing:
   rate-limits its decay in a real sample, not its own. Its 140.5 keV entry
   carries the 66 h half-life of the feeding 99Mo rather than the 6 h of 99mTc
   itself, which is exactly how that activity behaves in a sample days after
-  irradiation — so the line still ranks correctly when the raw state
-  half-life would have written it off. The API reports each state's own
-  half-life, and the ranking then discards short-lived daughters that are in
-  fact still present through their parent. Reproducing this properly in the
-  API version would mean modelling parent feeding in the ranking; it would
-  arrive at the same answer the curation encodes in a text file.
+  irradiation. The raw API reports each state's own half-life, and the
+  ranking then discards short-lived daughters that are in fact still present
+  through their parent.
 - **Natural background.** The ranking scores lines by production-and-decay
   plausibility, which correctly favours activation products — and therefore
   ranks primordial background lines (40K at 1461 keV) below them, where the
   small curated library had no competitors in the window.
+
+## The post-pull curation stage
+
+`curate_library()` in `iaea_client.py` reproduces both effects on the pulled
+dataset, so the hand curation becomes a computed transform:
+
+- **Equilibrium propagation.** `feeder_half_lives()` builds the nuclide
+  feeding graph from the ground-states decay modes (branches ≥ 1 %) and
+  propagates each feeder's decay timescale down its chains to a fixed point.
+  Every gamma line is then assigned
+  `eff_hl_sec = max(state half-life, rate-limiting feeder half-life)`,
+  with feeders capped at one year so primordial chains do not masquerade as
+  activation equilibria. The computed values land on the hand-curated ones:
+  99mTc 6.0 h → 65.9 h (99Mo), 140La 1.68 d → 12.75 d (140Ba),
+  132I 2.3 h → 3.2 d (132Te).
+- **Background pinning.** A dozen well-known ambient lines (40K, 214Bi/Pb,
+  208Tl, 228Ac, 137Cs, …) are pinned to a fixed 30 d effective half-life:
+  a constant room-background line competes like a slowly decaying source
+  instead of being ranked away for its primordial half-life.
+
+The committed `data/api_gamma_library.csv` keeps the raw `state_hl_sec` next
+to the effective values and a `background` flag, so the manipulation stays
+inspectable, and each step can be disabled through the constants at the top
+of `iaea_client.py`. With the curation stage on, identification agreement
+with the curated library rises from 43 to 46 of 59 peaks, and the
+disagreements that remain are candidate-set breadth, not physics.
 
 Nuclide data otherwise reflects current IAEA evaluations rather than the
 2013-era NuDat export; several half-lives that were placeholders there are

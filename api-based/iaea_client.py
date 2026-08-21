@@ -37,6 +37,43 @@ MIN_INTENSITY_PERCENT = 0.01
 ENERGY_RANGE_KEV = (40.0, 2000.0)
 MAX_MASS_NUMBER = 236
 
+# Post-pull curation: equilibrium half-life propagation. A daughter fed by a
+# longer-lived parent decays with the parent's half-life in a real sample
+# (transient equilibrium), so each line is assigned the half-life of its
+# rate-limiting upstream feeder. Feeding is followed through branches of at
+# least EQUILIBRIUM_MIN_BRANCH_PERCENT, and a feeder only propagates its
+# half-life if it is at most EQUILIBRIUM_MAX_PARENT_S -- longer-lived
+# ancestors (primordial chains) do not drive activation-sample equilibria.
+EQUILIBRIUM_MIN_BRANCH_PERCENT = 1.0
+EQUILIBRIUM_MAX_PARENT_S = 3.156E7          # one year
+
+# Post-pull curation: ambient background lines. These are always present in a
+# counting room regardless of the sample and do not decay on measurement
+# timescales, so they are pinned to a fixed effective half-life that keeps
+# them competitive in the ranking -- the curated library achieved the same by
+# carrying them with no competitors in the match window.
+BACKGROUND_EFFECTIVE_HALF_LIFE = (30.0, 'd')
+KNOWN_BACKGROUND_LINES = [                  # (energy keV, isotope)
+    (1460.82, '40K'),
+    (661.657, '137Cs'),
+    (609.32, '214Bi'), (1120.29, '214Bi'), (1764.49, '214Bi'),
+    (351.93, '214Pb'), (295.22, '214Pb'),
+    (583.19, '208Tl'), (911.2, '228Ac'), (968.97, '228Ac'),
+    (186.21, '226Ra'), (238.63, '212Pb'),
+]
+
+# Change in (Z, N) produced by each IAEA decay-mode label; None marks modes
+# with no single child nuclide (fission).
+MODE_CHANGES = {
+    'B-': (1, -1), 'B+': (-1, 1), 'EC': (-1, 1), 'EC+B+': (-1, 1),
+    'A': (-2, -2), 'IT': (0, 0),
+    'B-N': (1, -2), 'B-2N': (1, -3), 'B-A': (-1, -3),
+    'ECP': (-2, 1), 'B+P': (-2, 1),
+    'N': (0, -1), '2N': (0, -2), 'P': (-1, 0), '2P': (-2, 0),
+    '2B-': (2, -2), '2EC': (-2, 2), '2B+': (-2, 2),
+    'SF': None, 'ECSF': None,
+}
+
 
 def _fetch(query):
     """GET one API query, serving from the disk cache when possible."""
@@ -134,18 +171,103 @@ def build_gamma_library(progress=None):
                         & (gammas.half_life_sec >= MIN_PARENT_HALF_LIFE_S)
                         & (gammas.half_life_sec <= MAX_PARENT_HALF_LIFE_S)]
         for row in gammas.itertuples():
-            value, unit = _half_life_units(row.half_life_sec)
             name = f'{int(row.p_z + row.p_n)}{row.p_symbol}'
             if row.p_energy > 0:
                 name += 'm'         # line comes from a metastable parent state
             records.append((round(float(row.energy), 4),
                             round(float(row.intensity), 6),
-                            name, round(value, 4), unit))
+                            name, int(row.p_z), int(row.p_n),
+                            float(row.half_life_sec)))
 
     library = pd.DataFrame(records, columns=['energy', 'intensity', 'isotope',
-                                             'half_life', 'unit'])
+                                             'z', 'n', 'state_hl_sec'])
     library = library.drop_duplicates().sort_values('energy')
+    library = curate_library(library)
     library.to_csv(library_file, index=False)
+    return library
+
+
+def feeder_half_lives(states=None):
+    """Rate-limiting upstream feeder half-life per nuclide, in seconds.
+
+    Builds the nuclide-level feeding graph from the ground-states decay modes
+    and propagates each feeder's decay timescale down its chains to a fixed
+    point, so a chain such as 140Ba -> 140La carries 140Ba's 12.75 d to the
+    140La lines just as 99Mo carries its 66 h to the 99mTc line.
+    """
+    states = ground_states() if states is None else states
+    states = states.rename(columns={'decay_1_%': 'decay_1_pct',
+                                    'decay_2_%': 'decay_2_pct',
+                                    'decay_3_%': 'decay_3_pct'})
+
+    own = {}
+    children = {}
+    for row in states.itertuples():
+        if str(row.half_life) == 'STABLE' or pd.isna(row.half_life_sec):
+            continue
+        z, n = int(row.z), int(row.n)
+        own[(z, n)] = float(row.half_life_sec)
+        for mode, percent in [(row.decay_1, row.decay_1_pct),
+                              (row.decay_2, row.decay_2_pct),
+                              (row.decay_3, row.decay_3_pct)]:
+            change = MODE_CHANGES.get(str(mode))
+            if (change is None or change == (0, 0) or pd.isna(percent)
+                    or float(percent) < EQUILIBRIUM_MIN_BRANCH_PERCENT):
+                continue
+            children.setdefault((z, n), []).append((z + change[0],
+                                                    n + change[1]))
+
+    # up[X]: timescale on which X's activity disappears from a sample --
+    # its own half-life or that of its slowest capped feeder.
+    up = dict(own)
+    for _ in range(60):
+        changed = False
+        for parent, kids in children.items():
+            drive = up[parent]
+            if drive > EQUILIBRIUM_MAX_PARENT_S:
+                continue
+            for kid in kids:
+                if kid in up and drive > up[kid]:
+                    up[kid] = drive
+                    changed = True
+        if not changed:
+            break
+
+    feeders = {}
+    for parent, kids in children.items():
+        drive = up[parent]
+        if drive > EQUILIBRIUM_MAX_PARENT_S:
+            continue
+        for kid in kids:
+            feeders[kid] = max(feeders.get(kid, 0.0), drive)
+    return feeders
+
+
+def curate_library(library, states=None):
+    """The post-pull stage: equilibrium half-lives and background pinning.
+
+    Adds ``eff_hl_sec`` (the half-life the ranking should use), the analyzer's
+    ``half_life``/``unit`` split of it, and a ``background`` flag. The raw
+    ``state_hl_sec`` column is kept so the manipulation stays inspectable.
+    """
+    feeders = feeder_half_lives(states)
+    effective = [max(row.state_hl_sec, feeders.get((row.z, row.n), 0.0))
+                 for row in library.itertuples()]
+    library = library.assign(eff_hl_sec=effective, background=False)
+
+    value, unit = BACKGROUND_EFFECTIVE_HALF_LIFE
+    seconds = value * {'s': 1, 'm': 60, 'h': 3600, 'd': 86400,
+                       'y': 31557600}[unit]
+    for energy, isotope in KNOWN_BACKGROUND_LINES:
+        mask = ((library.isotope == isotope)
+                & ((library.energy - energy).abs() < 0.5))
+        library.loc[mask, 'eff_hl_sec'] = seconds
+        library.loc[mask, 'background'] = True
+
+    split = [_half_life_units(s) for s in library.eff_hl_sec]
+    library = library.assign(
+        half_life=[round(v, 4) for v, _ in split],
+        unit=[u for _, u in split])
     return library
 
 

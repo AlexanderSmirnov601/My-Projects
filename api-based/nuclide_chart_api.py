@@ -28,17 +28,7 @@ MIN_BRANCH_PERCENT = 1.0        # second decay branches below this are ignored
 sys.path.insert(0, str(HERE))
 import iaea_client
 
-# Change in (Z, N) produced by each IAEA decay-mode label. Modes with no
-# single child nuclide (fission) map to None.
-MODE_CHANGES = {
-    'B-': (1, -1), 'B+': (-1, 1), 'EC': (-1, 1), 'EC+B+': (-1, 1),
-    'A': (-2, -2), 'IT': (0, 0),
-    'B-N': (1, -2), 'B-2N': (1, -3), 'B-A': (-1, -3),
-    'ECP': (-2, 1), 'B+P': (-2, 1),
-    'N': (0, -1), '2N': (0, -2), 'P': (-1, 0), '2P': (-2, 0),
-    '2B-': (2, -2), '2EC': (-2, 2), '2B+': (-2, 2),
-    'SF': None, 'ECSF': None,
-}
+MODE_CHANGES = iaea_client.MODE_CHANGES
 
 
 def load_viewer():
