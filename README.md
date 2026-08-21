@@ -10,6 +10,7 @@ measurements.
 | [isotope-database-builder](isotope-database-builder) | Parses the NNDC/NuDat CSV export, derives the Z/N change of every decay mode, and loads the result into the `IsotopeDB` MySQL schema. |
 | [nuclide-chart-viewer](nuclide-chart-viewer) | Tkinter app over `IsotopeDB`: half-life heatmap of the chart of nuclides, decay-chain diagrams, and activity-vs-time curves for a chosen isotope. |
 | [gamma-spectrum-analyzer](gamma-spectrum-analyzer) | Reads Ortec `.Spe` spectra, finds and fits peaks, identifies isotopes against a gamma library, and computes activity and production yield. |
+| [api-based](api-based) | Both tools above rebuilt on the public IAEA Live Chart of Nuclides API — no local database or curated library needed. |
 
 Each of the two graphical projects ships a `sample_outputs.pdf` collecting its
 figures with short explanations.

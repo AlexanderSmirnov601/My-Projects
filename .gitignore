@@ -17,3 +17,8 @@ gamma-spectrum-analyzer/report.txt
 Thumbs.db
 .idea/
 .vscode/
+
+# IAEA API response cache (rebuilt on demand)
+api-based/cache/
+api-based/Results/
+api-based/report_api.txt
