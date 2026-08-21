@@ -1,0 +1,20 @@
+# Shared dependencies for all three projects.
+#   python -m venv .venv && .venv/Scripts/activate   (Windows)
+#   pip install -r requirements.txt
+#
+# tkinter ships with CPython on Windows/macOS; on Debian/Ubuntu install
+# the python3-tk system package.
+
+numpy>=1.24
+matplotlib>=3.6
+# gamma-spectrum-analyzer: Gaussian peak fitting.
+# nuclide-chart-viewer: matrix exponential for the decay-chain activity.
+scipy>=1.10
+
+# isotope-database-builder
+pandas>=2.0
+mysql-connector-python>=8.0
+
+# nuclide-chart-viewer
+seaborn>=0.12
+Pillow>=9.0

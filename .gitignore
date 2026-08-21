@@ -1,0 +1,19 @@
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+.venv/
+venv/
+
+# Local configuration overrides (may contain credentials)
+*.local.ini
+.env
+
+# Generated run logs
+gamma-spectrum-analyzer/report.txt
+
+# OS / editor cruft
+.DS_Store
+Thumbs.db
+.idea/
+.vscode/
